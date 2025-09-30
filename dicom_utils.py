@@ -59,16 +59,38 @@ def microseconds_to_seconds(value_us: Any) -> Optional[float]:
         return None
     return v / 1_000_000.0
 
-TA_PATTERN = re.compile(r"\bTA\s*[:]??\s*(\d{1,2}):(\d{2})(?:\s*\*\s*(\d+))?\b", re.IGNORECASE)
+# 1) 정규식: mm:ss(.fff)? 또는 ss(.fff)? 둘 다 허용
+TA_PATTERN = re.compile(
+    r"\bTA\s*[:]?\s*"
+    r"(?:(\d{1,2}):(\d{2})(?:\.(\d+))?"      # 그룹1: 분, 그룹2: 초(정수), 그룹3: 초 소수부(옵션)
+    r"|(\d+)(?:\.(\d+))?)"                   # 그룹4: 초만(정수), 그룹5: 초 소수부(옵션)
+    r"(?:\s*\*\s*(\d+))?\b",                 # 그룹6: multiplier (옵션)
+    re.IGNORECASE
+)
 
 def parse_ta_string(text: Optional[str]) -> Optional[float]:
     if not text:
         return None
-    m = TA_PATTERN.search(text)
+    # 소수점 구분자가 콤마인 경우도 대비 (예: 50,12*2)
+    t = str(text).replace(",", ".")
+    m = TA_PATTERN.search(t)
     if not m:
         return None
-    mm = int(m.group(1)); ss = int(m.group(2)); mult = int(m.group(3)) if m.group(3) else 1
-    return float((mm * 60 + ss) * mult)
+
+    if m.group(1) is not None:
+        # mm:ss(.fff)?
+        mm = int(m.group(1))
+        ss_int = int(m.group(2))            # 소수점은 버림
+        # m.group(3)는 초의 소수부지만 요구사항상 무시
+        base_seconds = mm * 60 + ss_int
+    else:
+        # ss(.fff)?
+        ss_int = int(m.group(4))            # 소수점은 버림
+        # m.group(5)는 소수부지만 요구사항상 무시
+        base_seconds = ss_int
+
+    mult = int(m.group(6)) if m.group(6) else 1
+    return float(base_seconds * mult)
 
 VENDOR_GE = "GE"
 VENDOR_PHILIPS = "Philips"
