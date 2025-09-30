@@ -59,38 +59,43 @@ def microseconds_to_seconds(value_us: Any) -> Optional[float]:
         return None
     return v / 1_000_000.0
 
-# 1) 정규식: mm:ss(.fff)? 또는 ss(.fff)? 둘 다 허용
-TA_PATTERN = re.compile(
-    r"\bTA\s*[:]?\s*"
-    r"(?:(\d{1,2}):(\d{2})(?:\.(\d+))?"      # 그룹1: 분, 그룹2: 초(정수), 그룹3: 초 소수부(옵션)
-    r"|(\d+)(?:\.(\d+))?)"                   # 그룹4: 초만(정수), 그룹5: 초 소수부(옵션)
-    r"(?:\s*\*\s*(\d+))?\b",                 # 그룹6: multiplier (옵션)
+TA_PATTERN = re.compile(r"\bTA\s*[:]??\s*(\d{1,2}):(\d{2})(?:\s*\*\s*(\d+))?\b", re.IGNORECASE)
+
+# NEW: 'TA 50.12*2' 같은 "초[.소수]*배수" 패턴도 지원 (콤마 소수점도 허용)
+TA_PATTERN_SEC = re.compile(
+    r"\bTA\s*[:]?\s*(\d+(?:[.,]\d+)?)(?:\s*\*\s*(\d+))?\b",
     re.IGNORECASE
 )
 
 def parse_ta_string(text: Optional[str]) -> Optional[float]:
+    """'TA 01:08*2' 또는 'TA 50.12*2' → seconds.
+    - 'mm:ss[*mult]'을 우선 해석
+    - 없으면 'ss[.fraction][*mult]' 해석 (소수점은 버림)
+    """
     if not text:
         return None
-    # 소수점 구분자가 콤마인 경우도 대비 (예: 50,12*2)
-    t = str(text).replace(",", ".")
-    m = TA_PATTERN.search(t)
-    if not m:
-        return None
 
-    if m.group(1) is not None:
-        # mm:ss(.fff)?
+    # 1) mm:ss[*mult]
+    m = TA_PATTERN.search(text)
+    if m:
         mm = int(m.group(1))
-        ss_int = int(m.group(2))            # 소수점은 버림
-        # m.group(3)는 초의 소수부지만 요구사항상 무시
-        base_seconds = mm * 60 + ss_int
-    else:
-        # ss(.fff)?
-        ss_int = int(m.group(4))            # 소수점은 버림
-        # m.group(5)는 소수부지만 요구사항상 무시
-        base_seconds = ss_int
+        ss = int(m.group(2))
+        mult = int(m.group(3)) if m.group(3) else 1
+        return float((mm * 60 + ss) * mult)
 
-    mult = int(m.group(6)) if m.group(6) else 1
-    return float(base_seconds * mult)
+    # 2) ss[.fraction][*mult] → 소수점은 버리고 정수 초로 계산
+    m2 = TA_PATTERN_SEC.search(text)
+    if m2:
+        sec_str = m2.group(1).replace(",", ".")  # '50,12'도 허용
+        try:
+            base_sec = int(float(sec_str))       # 50.12 → 50
+        except Exception:
+            return None
+        mult = int(m2.group(2)) if m2.group(2) else 1
+        return float(base_sec * mult)
+
+    return None
+
 
 VENDOR_GE = "GE"
 VENDOR_PHILIPS = "Philips"
@@ -190,7 +195,7 @@ def collect_series_times(root: Path):
                     elif tag_used == "(0018,9073)":
                         entry["Unit"] = "seconds"
                     elif tag_used == "(0051,100A)" or tag_used.startswith("TA in"):
-                        entry["Unit"] = "mm:ss[*mult]"
+                        entry["Unit"] = "mm:ss or sec[*mult]"
     rows = list(series_map.values())
     df = pd.DataFrame(rows).sort_values(["Series"]).reset_index(drop=True)
     df["ScanTime"] = df["Seconds"].apply(seconds_to_min_sec_str)
