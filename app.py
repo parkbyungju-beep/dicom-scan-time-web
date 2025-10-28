@@ -1,4 +1,3 @@
-
 import io
 import tempfile
 from pathlib import Path
@@ -7,21 +6,21 @@ import streamlit as st
 from dicom_utils import collect_series_times, save_csv, extract_zip_to_temp
 
 st.set_page_config(page_title="DICOM Scan Time", layout="wide")
-st.title("🩻 DICOM Scan Time Summarizer (Multi‑Vendor)")
-st.caption("GE / Philips / Canon(Toshiba) / Siemens 지원 — ZIP(폴더 압축) 업로드")
+st.title("🩻 DICOM Scan Time Summarizer (Multi-Vendor)")
+st.caption("Supports GE / Philips / Canon (Toshiba) / Siemens — Upload a ZIP (compressed folder)")
 
-with st.expander("ℹ️ 사용 방법", expanded=True):
+with st.expander("ℹ️ How to Use", expanded=True):
     st.markdown(
         """
-        1) **DICOM 폴더를 ZIP으로 압축**하세요.  
-        2) 아래에 **ZIP 파일을 드래그&드롭**(또는 선택)하세요.  
-        3) 처리 후 **시리즈별 스캔타임 표**와 **CSV 다운로드** 버튼이 표시됩니다.
+        1) **Compress your DICOM folder into a ZIP file.**  
+        2) **Drag & drop** (or select) the ZIP file below.  
+        3) After processing, you'll see a **series-wise scan time table** and a **CSV download** button.
 
-        **주의:** 브라우저 특성상 폴더 자체 업로드는 불가합니다. 반드시 ZIP으로 압축해서 올려주세요.
+        **Note:** Due to browser limitations, you cannot upload folders directly. Please compress your DICOM folder into a ZIP file before uploading.
         """
     )
 
-uploaded = st.file_uploader("DICOM ZIP 파일 업로드", type=["zip"], accept_multiple_files=False)
+uploaded = st.file_uploader("Upload DICOM ZIP file", type=["zip"], accept_multiple_files=False)
 
 if uploaded is not None:
     with tempfile.TemporaryDirectory(prefix="dicom_zip_ui_") as td:
@@ -30,44 +29,44 @@ if uploaded is not None:
             f.write(uploaded.read())
 
         ph = st.empty()
-        ph.info("[1/3] 압축 해제 중...")
+        ph.info("[1/3] Extracting ZIP file...")
         tmpdir = extract_zip_to_temp(temp_zip)
 
         try:
-            ph.info("[2/3] DICOM 스캔 중… 파일 구조에 따라 수십 초 소요될 수 있습니다.")
+            ph.info("[2/3] Scanning DICOM files… This may take several seconds depending on folder structure.")
             df, stats = collect_series_times(tmpdir)
         finally:
             pass
 
-        ph.success("[3/3] 완료!")
+        ph.success("[3/3] Done!")
 
         if df.empty:
-            st.warning("시리즈를 찾지 못했습니다. ZIP 내부 구조 또는 DICOM 유효성을 확인해 주세요.")
+            st.warning("No series found. Please check the ZIP structure or DICOM file validity.")
         else:
-            # --- 요청사항 반영: 표에서 SeriesInstanceUID 숨김 + Number of Instances를 2번째 열로 ---
+            # --- UI preference: hide SeriesInstanceUID + show Number of Instances as 2nd column ---
             display_df = df.drop(columns=["SeriesInstanceUID"], errors="ignore")
             preferred = ["Series", "Number of Instances", "Manufacturer", "TagUsed", "RawValue", "Unit", "ScanTime", "Seconds"]
             final_cols = [c for c in preferred if c in display_df.columns] + [c for c in display_df.columns if c not in preferred]
             display_df = display_df[final_cols]
 
-            st.subheader("시리즈별 스캔타임 요약")
+            st.subheader("Series-wise Scan Time Summary")
             st.dataframe(display_df, use_container_width=True)
 
             csv_buf = io.StringIO()
             df.to_csv(csv_buf, index=False)
             st.download_button(
-                label="⬇️ CSV 다운로드",
+                label="⬇️ Download CSV",
                 data=csv_buf.getvalue(),
                 file_name=f"{uploaded.name.replace('.zip','')}_scan_times.csv",
                 mime="text/csv",
             )
 
             st.markdown("---")
-            st.subheader("처리 통계")
+            st.subheader("Processing Statistics")
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("파일 검사", f"{stats['files_checked']}")
-            col2.metric("DICOM 판정", f"{stats['files_dicom']}")
-            col3.metric("시리즈 수", f"{stats['series_count']}")
-            col4.metric("시간 추출 성공 시리즈", f"{stats['series_with_time']}")
+            col1.metric("Files Checked", f"{stats['files_checked']}")
+            col2.metric("Valid DICOM Files", f"{stats['files_dicom']}")
+            col3.metric("Series Count", f"{stats['series_count']}")
+            col4.metric("Series with Extracted Time", f"{stats['series_with_time']}")
 
 st.caption("Made by AIRS Medical 2025 CCS Team")
